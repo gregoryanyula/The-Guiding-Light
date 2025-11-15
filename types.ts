@@ -14,6 +14,10 @@ export enum View {
   Library = 'LIBRARY',
   ResourceCentre = 'RESOURCE_CENTRE',
   MusicHub = 'MUSIC_HUB',
+  ImageGeneration = 'IMAGE_GENERATION',
+  ImageAnalysis = 'IMAGE_ANALYSIS',
+  VideoAnalysis = 'VIDEO_ANALYSIS',
+  Transcription = 'TRANSCRIPTION',
 }
 
 export interface User {
@@ -32,6 +36,9 @@ export interface Challenge {
 }
 
 export interface SermonContent {
+    topic: string;
+    speaker?: string;
+    date: string;
     sermonText: string;
     videoPrompt: string;
     audioPrompt: string;
@@ -163,7 +170,9 @@ export interface AISuggestion<T> {
 // Chatbot types
 export interface ChatMessage {
   sender: 'user' | 'ai' | 'system';
-  text: string;
+  text?: string;
+  imageUrl?: string;
+  imageName?: string;
 }
 
 export interface TrendingTopic {

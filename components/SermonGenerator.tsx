@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { generateSermon, generateSocialPost, generateRatingFeedback, generateSermonAudio, generateSermonVideo, generateSermonPoster, suggestSermonVideoStyles, suggestSermonAudioStyles } from '../services/geminiService';
-import { SermonContent } from '../types';
+import { generateSermon, generateSocialPost, generateRatingFeedback, generateSermonAudio, generateSermonVideo, generateSermonPoster, suggestSermonVideoStyles, suggestSermonAudioStyles, suggestSermonTopics, ensureVeoApiKey } from '../services/geminiService';
+import { SermonContent, User } from '../types';
 import Spinner from './Spinner';
 import { VideoIcon, AudioIcon, StarIcon, DownloadIcon, ClipboardIcon, SparklesIcon, ShareIcon, PhotoIcon, RefreshIcon, TrophyIcon, CheckCircleIcon } from './Icons';
 
 interface SermonGeneratorProps {
+  user: User;
   onSermonGenerated: (topic: string) => void;
   onAddToLibrary: (name: string, content: string, mimeType: string) => Promise<void>;
   addToast: (message: string) => void;
+  sermonTopicsHistory: string[];
+  meditationGoalsHistory: string[];
 }
 
 interface StyleSuggestion {
@@ -16,11 +19,19 @@ interface StyleSuggestion {
 }
 
 // FIX: Changed to a named export to resolve import error in AppLayout.tsx
-export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenerated, onAddToLibrary, addToast }) => {
-  const [topic, setTopic] = useState('');
+export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ user, onSermonGenerated, onAddToLibrary, addToast, sermonTopicsHistory, meditationGoalsHistory }) => {
+  const [topic, setTopic] = useState('The Power of Forgiveness');
   const [length, setLength] = useState('5-minute');
   const [tone, setTone] = useState('inspirational');
-  const [sermonContent, setSermonContent] = useState<SermonContent | null>(null);
+  const [speaker, setSpeaker] = useState('');
+  const [sermonContent, setSermonContent] = useState<SermonContent | null>({
+    topic: 'The Power of Forgiveness',
+    sermonText: 'The Power of Forgiveness is a central theme in many spiritual traditions. It is the act of releasing resentment or vengeance toward a person or group who has harmed you, regardless of whether they actually deserve your forgiveness. This sermon explores the difficult but transformative journey of letting go, finding peace, and the profound strength that comes from forgiving others and oneself. It is not about condoning the wrong, but about freeing yourself from its weight.',
+    date: new Date().toISOString(),
+    speaker: user.name,
+    videoPrompt: '',
+    audioPrompt: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -53,18 +64,23 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
   const [videoStatus, setVideoStatus] = useState('');
   const [videoGenerationProgress, setVideoGenerationProgress] = useState(0);
   const [videoStyles, setVideoStyles] = useState<StyleSuggestion[] | null>(null);
-  const [selectedVideoStyle, setSelectedVideoStyle] = useState<string>('');
+  const [selectedVideoStyle, setSelectedVideoStyle] = useState('Abstract, flowing visuals of light particles coalescing and dispersing, symbolizing release and renewal, with a soft, ethereal color palette of blues and golds.');
   const [isSuggestingVideoStyles, setIsSuggestingVideoStyles] = useState(false);
   const [videoStyleError, setVideoStyleError] = useState('');
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
 
 
   const [isGeneratingPoster, setIsGeneratingPoster] = useState(false);
   const [posterImage, setPosterImage] = useState<string | null>(null);
   const [posterMimeType, setPosterMimeType] = useState<'image/jpeg' | 'image/png'>('image/jpeg');
   const [selectedPosterType, setSelectedPosterType] = useState<'image/jpeg' | 'image/png'>('image/jpeg');
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'3:4' | '16:9'>('3:4');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'3:4' | '16:9'>('16:9');
   const [posterError, setPosterError] = useState('');
   const [isSharing, setIsSharing] = useState(false);
+
+  const [suggestedTopics, setSuggestedTopics] = useState<string[] | null>(null);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+
 
   useEffect(() => {
     // Cleanup for generated video object URLs to prevent memory leaks
@@ -87,25 +103,6 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
     }
   }, []);
 
-  const handleSuggestVideoStyles = useCallback(async () => {
-    if (!sermonContent?.sermonText) return;
-    setIsSuggestingVideoStyles(true);
-    setVideoStyles(null);
-    setSelectedVideoStyle('');
-    setVideoStyleError('');
-    setVideoUrl(null);
-    setVideoError('');
-  
-    const styles = await suggestSermonVideoStyles(sermonContent.sermonText);
-    
-    if (styles) {
-      setVideoStyles(styles);
-    } else {
-      setVideoStyleError('Could not suggest video styles. Please try again.');
-    }
-    setIsSuggestingVideoStyles(false);
-  }, [sermonContent]);
-
   const handleSuggestAudioStyles = useCallback(async () => {
     if (!sermonContent?.sermonText) return;
     setIsSuggestingAudioStyles(true);
@@ -124,80 +121,6 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
     }
     setIsSuggestingAudioStyles(false);
   }, [sermonContent]);
-
-  useEffect(() => {
-    if (sermonContent) {
-      handleSuggestVideoStyles();
-      handleSuggestAudioStyles();
-    }
-  }, [sermonContent, handleSuggestVideoStyles, handleSuggestAudioStyles]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!topic) {
-      setError('Please enter a topic.');
-      return;
-    }
-    setError('');
-    setLoading(true);
-    setSermonContent(null);
-    setSocialPost('');
-    setCopySuccess('');
-    setRatingFeedback('');
-    setCurrentRating(0);
-    setAverageRating({ avg: 0, count: 0 });
-    setAudioUrl(null);
-    setAudioError('');
-    setIsGeneratingAudio(false);
-    setAudioStatus('');
-    setAudioStyles(null);
-    setSelectedAudioStyle('');
-    setIsSuggestingAudioStyles(false);
-    setAudioStyleError('');
-    setVideoUrl(null);
-    setVideoError('');
-    setIsGeneratingVideo(false);
-    setVideoStatus('');
-    setVideoGenerationProgress(0);
-    setVideoStyles(null);
-    setSelectedVideoStyle('');
-    setIsSuggestingVideoStyles(false);
-    setVideoStyleError('');
-    setPosterImage(null);
-    setPosterError('');
-    setIsGeneratingPoster(false);
-
-    const result = await generateSermon(topic, length, tone);
-    if (result === 'QUOTA_EXCEEDED') {
-      setError('Sermon generation quota has been reached. Please try again later.');
-    } else if (result) {
-      setSermonContent(result);
-      
-      const topicKey = topic.toLowerCase();
-      const topicRatings = ratings[topicKey] || [];
-      if (topicRatings.length > 0) {
-        const sum = topicRatings.reduce((a, b) => a + b, 0);
-        const avg = sum / topicRatings.length;
-        setAverageRating({ avg: parseFloat(avg.toFixed(1)), count: topicRatings.length });
-      }
-
-      // Automatically save the sermon text to the library
-      try {
-        const textBase64 = btoa(unescape(encodeURIComponent(result.sermonText)));
-        await onAddToLibrary(`Sermon: ${topic}`, textBase64, 'text/plain');
-      } catch (e) {
-        console.error("Failed to save sermon text to library", e);
-      }
-
-      onSermonGenerated(topic);
-      setShowRewardMessage(true);
-      setTimeout(() => setShowRewardMessage(false), 3000);
-
-    } else {
-      setError('Failed to generate sermon. Please try again.');
-    }
-    setLoading(false);
-  };
 
   const handleSetRating = async (newRating: number) => {
     if (currentRating > 0) return; // Prevent re-rating
@@ -309,7 +232,7 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
   };
   
   const handleGenerateAudio = async () => {
-    if (!sermonContent?.audioPrompt || !selectedAudioStyle) return;
+    if (!sermonContent?.sermonText || !selectedAudioStyle) return;
 
     setIsGeneratingAudio(true);
     setAudioUrl(null);
@@ -329,7 +252,7 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
         setAudioStatus(statusMessages[messageIndex]);
     }, 2000);
 
-    const result = await generateSermonAudio(sermonContent.audioPrompt, selectedAudioStyle);
+    const result = await generateSermonAudio(sermonContent.sermonText, selectedAudioStyle);
 
     clearInterval(statusInterval);
 
@@ -342,13 +265,20 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
     setAudioStatus('');
   };
 
-  const handleGenerateVideo = async () => {
+  const handleGenerateVideo = useCallback(async () => {
     if (!sermonContent?.sermonText || !selectedVideoStyle) return;
   
     setIsGeneratingVideo(true);
     setVideoUrl(null);
     setVideoError('');
     setVideoGenerationProgress(0);
+
+    const keyReady = await ensureVeoApiKey();
+    if (!keyReady) {
+        setVideoError("API Key selection is required for video generation. Please select a key via the button and retry.");
+        setIsGeneratingVideo(false);
+        return;
+    }
   
     const statusMessages = [
       "Casting the visual scene...",
@@ -369,7 +299,7 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
       setVideoGenerationProgress(progress);
     };
 
-    const url = await generateSermonVideo(sermonContent.sermonText, selectedVideoStyle, onProgress);
+    const url = await generateSermonVideo(sermonContent.sermonText, selectedVideoStyle, onProgress, videoAspectRatio);
   
     clearInterval(statusInterval);
   
@@ -390,13 +320,13 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
             console.error("Failed to save video to library", e);
         }
     } else {
-        setVideoError('Failed to generate sermon video. Please try again.');
+        setVideoError('Failed to generate sermon video. Your API key might be invalid. Please re-select it and try again.');
     }
     setIsGeneratingVideo(false);
     setVideoStatus('');
-  };
+  }, [sermonContent?.sermonText, selectedVideoStyle, videoAspectRatio, onAddToLibrary, topic]);
 
-  const handleGeneratePoster = async () => {
+  const handleGeneratePoster = useCallback(async () => {
     if (!sermonContent?.sermonText) return;
 
     setIsGeneratingPoster(true);
@@ -413,7 +343,7 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
       setPosterError('Failed to generate poster. Please try again.');
     }
     setIsGeneratingPoster(false);
-  };
+  }, [sermonContent?.sermonText, selectedPosterType, selectedAspectRatio, onAddToLibrary, topic]);
 
   const handleDownloadPoster = () => {
     if (!posterImage || !topic) return;
@@ -425,6 +355,65 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
     link.click();
     document.body.removeChild(link);
   };
+  
+  const resetMultimediaStates = () => {
+      setAudioUrl(null); setAudioError(''); setIsGeneratingAudio(false); setAudioStatus(''); setAudioStyles(null); setSelectedAudioStyle(''); setIsSuggestingAudioStyles(false); setAudioStyleError('');
+      setVideoUrl(null); setVideoError(''); setIsGeneratingVideo(false); setVideoStatus(''); setVideoGenerationProgress(0); setVideoStyles(null); setSelectedVideoStyle('Abstract, flowing visuals of light particles coalescing and dispersing, symbolizing release and renewal, with a soft, ethereal color palette of blues and golds.'); setIsSuggestingVideoStyles(false); setVideoStyleError('');
+      setPosterImage(null); setPosterError(''); setIsGeneratingPoster(false);
+      setSocialPost(''); setIsGeneratingPost(false);
+      setCurrentRating(0); setRatingFeedback('');
+  };
+  
+  const handleSelectTopic = async (newTopic: string) => {
+    setLoading(true);
+    setError('');
+    setSermonContent(null);
+    setTopic(newTopic);
+    resetMultimediaStates();
+
+    const result = await generateSermon(newTopic, length, tone, speaker);
+
+    if (result && typeof result !== 'string') {
+        setSermonContent({
+            ...result,
+            date: new Date().toISOString(),
+            topic: newTopic,
+            speaker: user.name,
+        });
+        onSermonGenerated(newTopic);
+        setShowRewardMessage(true);
+        setTimeout(() => setShowRewardMessage(false), 3000);
+    } else {
+        setError('Failed to generate new sermon. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (sermonContent) {
+        const timer = setTimeout(() => {
+            handleGenerateVideo();
+            handleSuggestAudioStyles();
+            handleGeneratePoster();
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }
+  }, [sermonContent, handleGenerateVideo, handleSuggestAudioStyles, handleGeneratePoster]);
+
+  useEffect(() => {
+    const handleSuggestTopics = async () => {
+        setIsLoadingSuggestions(true);
+        setSuggestedTopics(null);
+        const suggestions = await suggestSermonTopics({
+            sermonHistory: sermonTopicsHistory,
+            meditationHistory: meditationGoalsHistory,
+        });
+        setSuggestedTopics(suggestions);
+        setIsLoadingSuggestions(false);
+    };
+    handleSuggestTopics();
+  }, [sermonTopicsHistory, meditationGoalsHistory]);
 
 
   return (
@@ -433,43 +422,33 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
         <h1 className="text-3xl sm:text-4xl font-bold text-white">Sermon & Discourse Generation</h1>
         <p className="mt-2 text-lg text-slate-400">Craft a personalized sermon to illuminate your path. 📖</p>
       </div>
-
-      <form onSubmit={handleSubmit} className="bg-slate-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-slate-700 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label htmlFor="topic" className="block text-sm font-medium text-slate-300 mb-1">Topic</label>
-            <input
-              type="text"
-              id="topic"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g., 'The Power of Forgiveness'"
-              className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-amber-400 focus:border-amber-400"
-            />
-          </div>
-          <div>
-            <label htmlFor="length" className="block text-sm font-medium text-slate-300 mb-1">Length</label>
-            <select id="length" value={length} onChange={(e) => setLength(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-amber-400 focus:border-amber-400">
-              <option>3-minute</option>
-              <option>5-minute</option>
-              <option>10-minute</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="tone" className="block text-sm font-medium text-slate-300 mb-1">Tone</label>
-            <select id="tone" value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-amber-400 focus:border-amber-400">
-              <option>Inspirational</option>
-              <option>Comforting</option>
-              <option>Reflective</option>
-              <option>Scholarly</option>
-            </select>
-          </div>
-        </div>
-        {error && <p className="text-red-400">{error}</p>}
-        <button type="submit" disabled={loading} className="w-full bg-amber-500 text-slate-900 font-bold py-3 px-4 rounded-md hover:bg-amber-400 transition-colors disabled:bg-slate-600 flex items-center justify-center">
-          {loading ? <Spinner /> : 'Generate Sermon'}
-        </button>
-      </form>
+      
+      <div className="bg-slate-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-slate-700">
+        <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+            <SparklesIcon className="w-6 h-6 text-purple-400" />
+            Personalized Topic Suggestions
+        </h2>
+        {isLoadingSuggestions ? (
+            <div className="flex justify-center"><Spinner /></div>
+        ) : suggestedTopics && suggestedTopics.length > 0 ? (
+            <div>
+                <p className="text-slate-400 mb-3">Based on your recent activity, here are some topics you might find meaningful:</p>
+                <div className="flex flex-wrap gap-2">
+                    {suggestedTopics.map((suggestion, index) => (
+                        <button
+                            key={index}
+                            onClick={() => handleSelectTopic(suggestion)}
+                            className="text-sm bg-slate-700 text-slate-300 px-3 py-1 rounded-full hover:bg-slate-600 hover:text-white transition-colors"
+                        >
+                            {suggestion}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        ) : (
+            <p className="text-slate-500">No suggestions available right now. Try generating a sermon to get personalized topics!</p>
+        )}
+      </div>
 
       {showRewardMessage && (
         <div className="mt-4 p-3 bg-green-500/20 border border-green-500 text-green-300 rounded-lg text-center animate-fade-in">
@@ -477,9 +456,9 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
         </div>
       )}
 
-      {loading && <div className="flex justify-center"><Spinner /></div>}
-
-      {sermonContent && (
+      {loading ? (
+        <div className="flex justify-center items-center h-96"><Spinner /></div>
+      ) : sermonContent ? (
         <div className="bg-slate-800/50 backdrop-blur-sm p-6 rounded-xl shadow-lg border border-slate-700 space-y-6 animate-fade-in">
           <div>
             <h2 className="text-2xl font-bold mb-4">Your Sermon on "{topic}"</h2>
@@ -541,7 +520,7 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
               {/* Video Card */}
               <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
                 <h4 className="font-semibold text-lg flex items-center mb-2"><VideoIcon className="w-6 h-6 mr-2 text-blue-400"/> AI Creative Director</h4>
-                <p className="text-slate-400 text-sm mb-4">Generate a symbolic video to accompany your sermon.</p>
+                <p className="text-slate-400 text-sm mb-4">Generate a symbolic video to accompany your sermon. Powered by Veo.</p>
                 <div className="flex-grow flex flex-col justify-center">
                   {isGeneratingVideo ? (
                       <div className="flex flex-col items-center justify-center p-6 space-y-3 bg-slate-800 rounded-lg">
@@ -556,11 +535,15 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
                           <p className="text-xs text-slate-500 text-center">Video generation can take several minutes.</p>
                       </div>
                   ) : videoError ? (
-                      <div className="flex flex-col items-center justify-center bg-red-900/20 text-red-300 rounded-lg p-4 text-center">
-                          <p>{videoError}</p>
+                      <div className="flex flex-col items-center justify-center bg-slate-800 text-slate-400 rounded-lg p-4 text-center space-y-3">
+                          <VideoIcon className="w-12 h-12 text-slate-600"/>
+                          <p className="font-semibold text-slate-300">Visuals Unavailable</p>
+                          <p className="text-sm">{videoError}</p>
+                           <p className="text-xs text-slate-500">Video generation requires a user-selected API key. <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">Learn more</a></p>
                           <button
                               onClick={handleGenerateVideo}
-                              className="mt-4 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
+                              disabled={!selectedVideoStyle}
+                              className="mt-2 flex items-center gap-2 px-4 py-2 bg-slate-600 text-slate-200 rounded-lg hover:bg-slate-500 transition-colors font-semibold disabled:opacity-50"
                           >
                               Retry
                           </button>
@@ -571,73 +554,8 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
                       </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center min-h-[150px] bg-slate-800 rounded-lg p-4 text-center space-y-4">
-                        {isSuggestingVideoStyles ? (
-                            <div className="flex flex-col items-center gap-2 text-slate-400">
-                                <Spinner />
-                                <span>AI Creative Director is analyzing...</span>
-                            </div>
-                        ) : videoStyleError ? (
-                            <div className="flex flex-col items-center justify-center text-red-300 text-center">
-                                <p>{videoStyleError}</p>
-                                <button
-                                    onClick={handleSuggestVideoStyles}
-                                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
-                                >
-                                    Retry
-                                </button>
-                            </div>
-                        ) : videoStyles ? (
-                            <div className="w-full space-y-3 animate-fade-in-short">
-                                <div className="flex justify-between items-center">
-                                    <p className="text-sm font-medium text-slate-300">Choose a visual style:</p>
-                                    <button
-                                        onClick={handleSuggestVideoStyles}
-                                        disabled={isSuggestingVideoStyles}
-                                        className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                                    >
-                                        Suggest Again
-                                    </button>
-                                </div>
-                                <div className="thin-scrollbar flex gap-4 overflow-x-auto py-2 -mx-4 px-4">
-                                    {videoStyles.map((style, index) => {
-                                        const isSelected = selectedVideoStyle === style.description;
-                                        return (
-                                            <button
-                                                key={index}
-                                                onClick={() => setSelectedVideoStyle(style.description)}
-                                                className={`relative flex-shrink-0 w-56 text-left p-4 rounded-xl border-2 transition-all duration-300 flex flex-col group ${
-                                                isSelected
-                                                    ? 'bg-blue-500/20 border-blue-400 shadow-lg scale-105'
-                                                    : 'bg-slate-900/60 border-slate-700 hover:border-slate-500 hover:-translate-y-1'
-                                                }`}
-                                            >
-                                                {isSelected && (
-                                                    <div className="absolute top-2 right-2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center">
-                                                        <CheckCircleIcon className="w-6 h-6 text-blue-400" />
-                                                    </div>
-                                                )}
-                                                <h5 className="font-bold text-lg text-white mb-2 transition-colors group-hover:text-amber-300 pr-6">
-                                                    {style.title}
-                                                </h5>
-                                                <p className="text-slate-400 text-sm flex-grow">{style.description}</p>
-                                            </button>
-                                        )
-                                    })}
-                                </div>
-                                <button
-                                    onClick={handleGenerateVideo}
-                                    disabled={!selectedVideoStyle}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                                >
-                                    <SparklesIcon className="w-5 h-5" />
-                                    Generate Video
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="flex justify-center items-center">
-                                <Spinner />
-                            </div>
-                        )}
+                        <Spinner />
+                        <p className="text-slate-400">Preparing video generation...</p>
                     </div>
                   )}
                 </div>
@@ -812,6 +730,10 @@ export const SermonGenerator: React.FC<SermonGeneratorProps> = ({ onSermonGenera
               </div>
             </div>
           </div>
+        </div>
+      ) : (
+        <div className="text-center py-16 text-slate-500">
+            {error ? <p className="text-red-400">{error}</p> : <p>Generate a sermon to see the results here.</p>}
         </div>
       )}
     </div>

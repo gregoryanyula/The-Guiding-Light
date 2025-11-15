@@ -44,6 +44,12 @@ const timeAgo = (dateString: string): string => {
     return `${Math.floor(seconds)}s ago`;
 };
 
+const DetailsArrowIcon = (props: React.SVGProps<SVGSVGElement>) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+    </svg>
+);
+
 const TrackItem: React.FC<{
   track: AIMusicTrack;
   isFavorite: boolean;
@@ -90,9 +96,10 @@ const TrackItem: React.FC<{
         {track.lyrics && (
             <div className="border-t border-slate-700 pt-3">
                 <details>
-                    <summary className="font-semibold text-amber-300 cursor-pointer flex items-center gap-2 hover:text-amber-200 transition-colors">
+                    <summary className="font-semibold text-amber-300 cursor-pointer flex items-center gap-2 hover:text-amber-200 transition-colors list-none">
                         <ScrollIcon className="w-5 h-5"/>
-                        <span className="details-arrow">View Lyrics</span>
+                        <span>View Lyrics</span>
+                        <DetailsArrowIcon className="w-4 h-4 ml-auto details-arrow" />
                     </summary>
                     <div className="mt-2 prose prose-sm prose-invert max-w-none text-slate-300 whitespace-pre-wrap max-h-48 overflow-y-auto thin-scrollbar pr-2">
                         {track.lyrics}
@@ -135,7 +142,7 @@ const TrackItem: React.FC<{
             <div className="border-t border-slate-700 pt-3 space-y-3 animate-fade-in-short">
                 <div className="max-h-48 overflow-y-auto space-y-3 pr-2 thin-scrollbar">
                     {track.comments.length > 0 ? [...track.comments].reverse().map(comment => (
-                        <div key={comment.id} className="text-sm">
+                        <div key={comment.id} className="text-sm animate-fade-in-short">
                             <div className="flex justify-between items-baseline">
                                 <span className="font-semibold text-white">{comment.userName}</span>
                                 <span className="text-xs text-slate-500">{timeAgo(comment.createdAt)}</span>
@@ -153,6 +160,8 @@ const TrackItem: React.FC<{
     </div>
   );
 };
+
+const TRENDING_PAGE_SIZE = 2;
 
 const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, favoriteTrackIds, onToggleFavorite }) => {
     const [activeTab, setActiveTab] = useState<'composer' | 'lyrics' | 'trending'>('composer');
@@ -181,13 +190,16 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
     const [visualizerMotion, setVisualizerMotion] = useState(motionIntensities[0]);
     
     // Trending State
-    const [trendingTracks, setTrendingTracks] = useState<AIMusicTrack[]>([]);
+    const [allTrendingTracks, setAllTrendingTracks] = useState<AIMusicTrack[]>([]);
+    const [displayedTrendingTracks, setDisplayedTrendingTracks] = useState<AIMusicTrack[]>([]);
+    const [hasMoreTrending, setHasMoreTrending] = useState(false);
     const [isLoadingTrending, setIsLoadingTrending] = useState(false);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [trendingError, setTrendingError] = useState('');
 
     useEffect(() => {
         const fetchTrending = async () => {
-            if (activeTab === 'trending') {
+            if (activeTab === 'trending' && allTrendingTracks.length === 0) { // Only fetch once
                 setIsLoadingTrending(true);
                 setTrendingError('');
                 try {
@@ -201,7 +213,11 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
                     });
                     const images = await Promise.all(imagePromises);
                     const tracksWithImages = tracks.map((track, i) => ({...track, imageUrl: images[i]}));
-                    setTrendingTracks(tracksWithImages);
+                    
+                    setAllTrendingTracks(tracksWithImages);
+                    setDisplayedTrendingTracks(tracksWithImages.slice(0, TRENDING_PAGE_SIZE));
+                    setHasMoreTrending(tracksWithImages.length > TRENDING_PAGE_SIZE);
+
                 } catch (e) {
                     setTrendingError('Could not load trending tracks.');
                 }
@@ -210,6 +226,18 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
         };
         fetchTrending();
     }, [activeTab]);
+
+     const handleLoadMoreTrending = () => {
+        setIsLoadingMore(true);
+        // Simulate network delay for loading more
+        setTimeout(() => {
+            const currentCount = displayedTrendingTracks.length;
+            const nextTracks = allTrendingTracks.slice(currentCount, currentCount + TRENDING_PAGE_SIZE);
+            setDisplayedTrendingTracks(prev => [...prev, ...nextTracks]);
+            setHasMoreTrending(currentCount + TRENDING_PAGE_SIZE < allTrendingTracks.length);
+            setIsLoadingMore(false);
+        }, 1000);
+    };
 
     const handleSuggestGenre = async () => {
         if (!prompt) return;
@@ -327,11 +355,13 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
         onToggleFavorite(trackId);
         const isNowFavorite = !favoriteTrackIds.includes(trackId);
         const increment = isNowFavorite ? 1 : -1;
+        const updateLikes = (track: AIMusicTrack) => track.id === trackId ? { ...track, likes: Math.max(0, track.likes + increment) } : track;
 
         if (composedTrack?.id === trackId) {
-            setComposedTrack(prev => prev ? { ...prev, likes: Math.max(0, prev.likes + increment) } : null);
+            setComposedTrack(prev => prev ? updateLikes(prev) : null);
         }
-        setTrendingTracks(prev => prev.map(t => t.id === trackId ? { ...t, likes: Math.max(0, t.likes + increment) } : t));
+        setAllTrendingTracks(prev => prev.map(updateLikes));
+        setDisplayedTrendingTracks(prev => prev.map(updateLikes));
     };
     
     const handleAddComment = (trackId: string, text: string) => {
@@ -341,10 +371,13 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
             text,
             createdAt: new Date().toISOString()
         };
+        const updateComments = (track: AIMusicTrack) => track.id === trackId ? { ...track, comments: [...track.comments, newComment] } : track;
+        
         if (composedTrack?.id === trackId) {
-            setComposedTrack(prev => prev ? { ...prev, comments: [...prev.comments, newComment] } : null);
+            setComposedTrack(prev => prev ? updateComments(prev) : null);
         }
-        setTrendingTracks(prev => prev.map(t => t.id === trackId ? { ...t, comments: [...t.comments, newComment] } : t));
+        setAllTrendingTracks(prev => prev.map(updateComments));
+        setDisplayedTrendingTracks(prev => prev.map(updateComments));
     };
 
     const handleShareTrack = async (track: AIMusicTrack) => {
@@ -355,10 +388,12 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
                 title: `Listen to "${track.title}" by ${track.artist}`,
                 text: shareText,
             });
+             const updateShares = (t: AIMusicTrack) => t.id === track.id ? { ...t, shares: t.shares + 1 } : t;
             if (composedTrack?.id === track.id) {
-                setComposedTrack(prev => prev ? { ...prev, shares: prev.shares + 1 } : null);
+                setComposedTrack(prev => prev ? updateShares(prev) : null);
             }
-            setTrendingTracks(prev => prev.map(t => t.id === track.id ? { ...t, shares: t.shares + 1 } : t));
+            setAllTrendingTracks(prev => prev.map(updateShares));
+            setDisplayedTrendingTracks(prev => prev.map(updateShares));
         } catch (error) {
             if (error instanceof Error && error.name !== 'AbortError') {
               console.error('Share failed:', error);
@@ -538,10 +573,19 @@ const MusicHub: React.FC<MusicHubProps> = ({ user, onAddToLibrary, addToast, fav
                     {isLoadingTrending ? <div className="flex justify-center p-8"><Spinner /></div> : 
                      trendingError ? <p className="text-red-400 text-center">{trendingError}</p> :
                      (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {trendingTracks.map(track => (
-                                <TrackItem key={track.id} track={track} isFavorite={favoriteTrackIds.includes(track.id)} onLike={handleLikeTrack} onAddComment={handleAddComment} onShare={handleShareTrack} />
-                            ))}
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {displayedTrendingTracks.map(track => (
+                                    <TrackItem key={track.id} track={track} isFavorite={favoriteTrackIds.includes(track.id)} onLike={handleLikeTrack} onAddComment={handleAddComment} onShare={handleShareTrack} />
+                                ))}
+                            </div>
+                            {hasMoreTrending && (
+                                <div className="flex justify-center">
+                                    <button onClick={handleLoadMoreTrending} disabled={isLoadingMore} className="bg-slate-700 text-slate-300 font-semibold px-6 py-2 rounded-lg hover:bg-slate-600 transition-colors disabled:opacity-50">
+                                        {isLoadingMore ? <Spinner/> : 'Load More'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

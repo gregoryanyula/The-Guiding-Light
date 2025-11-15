@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getStreamContent, generateSermonVideo, generateSermonAudio, generateChatbotResponse, summarizeChat, getAIHostQuestion, getDynamicOverlay } from '../services/geminiService';
 import { StreamContent, ChatMessage, View, TrendingTopic } from '../types';
 import Spinner from './Spinner';
-import { SendIcon, SparklesIcon, RefreshIcon } from './Icons';
+import { SendIcon, SparklesIcon, RefreshIcon, DownloadIcon, PhotoIcon, CloseIcon } from './Icons';
 
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -27,6 +27,7 @@ const Streaming: React.FC = () => {
   const [dynamicOverlay, setDynamicOverlay] = useState({ text: '', key: 0, positionClass: 'top-1/2 -translate-y-1/2' });
   const [currentAffirmation, setCurrentAffirmation] = useState({ text: '', key: 0 });
   const [lights, setLights] = useState<{ id: number; style: React.CSSProperties }[]>([]);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -34,6 +35,7 @@ const Streaming: React.FC = () => {
   const videoUrlRef = useRef<string | null>(null);
   const chatMessagesRef = useRef(chatMessages);
   const dynamicOverlayRef = useRef(dynamicOverlay);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -48,7 +50,7 @@ const Streaming: React.FC = () => {
       const currentMessages = chatMessagesRef.current;
       if (currentMessages.length > 3) {
         const history = currentMessages
-          .filter(msg => msg.sender !== 'system')
+          .filter(msg => msg.sender !== 'system' && msg.text)
           .slice(-10)
           .map(msg => `${msg.sender}: ${msg.text}`)
           .join('\n');
@@ -154,7 +156,8 @@ const Streaming: React.FC = () => {
 
     const syntheticSermonText = `Theme: ${content.theme}. Reflection: ${content.overlayQuote}. The visuals should evoke feelings related to this theme.`;
     
-    const videoPromise = generateSermonVideo(syntheticSermonText, content.theme, setVideoGenerationProgress)
+    // FIX: Added the missing 'aspectRatio' argument to the generateSermonVideo call.
+    const videoPromise = generateSermonVideo(syntheticSermonText, content.theme, setVideoGenerationProgress, '16:9')
       .then(url => {
           if (url === 'QUOTA_EXCEEDED') {
               throw new Error("QUOTA_EXCEEDED_VIDEO");
@@ -215,7 +218,7 @@ const Streaming: React.FC = () => {
     setUserInput('');
     setIsSendingMessage(true);
 
-    const aiResponseText = await generateChatbotResponse(newMessages.filter(m => m.sender !== 'system'), View.Streaming);
+    const aiResponseText = await generateChatbotResponse(newMessages.filter(m => m.sender !== 'system' && m.text), View.Streaming);
     
     const aiMessage: ChatMessage = { sender: 'ai', text: aiResponseText || "I'm here to listen. Feel free to share more." };
     setChatMessages(prev => [...prev, aiMessage]);
@@ -261,13 +264,61 @@ const Streaming: React.FC = () => {
         setLights(prev => prev.filter(l => l.id !== newLight.id));
     }, 13000); // Must be longer than max animation duration
   };
+  
+  const handleSaveDiscussion = () => {
+    const formattedChat = chatMessages.map(msg => {
+        const timestamp = new Date().toLocaleString();
+        if (msg.imageUrl) {
+            return `[${timestamp}] ${msg.sender}: [Shared Image: ${msg.imageName || 'image'}]`;
+        }
+        return `[${timestamp}] ${msg.sender}: ${msg.text}`;
+    }).join('\n');
+
+    const blob = new Blob([formattedChat], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `serenity-channel-discussion-${new Date().toISOString().split('T')[0]}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleShareImageClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            if (e.target?.result) {
+                const newUserMessage: ChatMessage = {
+                    sender: 'user',
+                    imageUrl: e.target.result as string,
+                    imageName: file.name
+                };
+                setChatMessages(prev => [...prev, newUserMessage]);
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+    if (event.target) {
+        event.target.value = '';
+    }
+  };
 
 
   const renderVideoPlayer = () => {
     if (error && !videoUrl) {
       return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-center p-4">
-          <p className="text-red-400 mb-4">{error}</p>
+          <SparklesIcon className="w-16 h-16 text-amber-500/50 mb-4" />
+          <h3 className="text-xl font-semibold text-white mb-2">Visuals Temporarily Unavailable</h3>
+          <p className="text-slate-400 max-w-md">{error}</p>
+          <p className="text-slate-500 text-sm mt-2">The background audio will continue playing if available.</p>
         </div>
       );
     }
@@ -314,6 +365,14 @@ const Streaming: React.FC = () => {
 
   return (
     <div className="animate-fade-in">
+      {viewingImage && (
+        <div className="image-viewer-modal" onClick={() => setViewingImage(null)}>
+            <button onClick={() => setViewingImage(null)} className="absolute top-4 right-4 text-white z-10 p-2 bg-black/50 rounded-full">
+                <CloseIcon className="w-8 h-8"/>
+            </button>
+            <img src={viewingImage} alt="Full-screen view" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6 gap-4">
         <div>
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">The Serenity Channel</h1>
@@ -362,8 +421,8 @@ const Streaming: React.FC = () => {
 
                 {/* Affirmation Overlay */}
                 {currentAffirmation.text && (
-                    <div key={currentAffirmation.key} className="affirmation-text absolute top-1/3 left-1/2 -translate-x-1/2 w-11/12 max-w-2xl text-center z-10">
-                        <p className="text-white text-2xl font-semibold drop-shadow-lg" style={{ textShadow: '0 0 10px rgba(0,0,0,0.7)' }}>
+                    <div key={currentAffirmation.key} className="affirmation-text absolute top-1/4 left-1/2 -translate-x-1/2 w-11/12 max-w-2xl text-center z-10 bg-black/20 backdrop-blur-sm p-4 rounded-xl">
+                        <p className="text-white text-2xl font-semibold drop-shadow-lg">
                             {currentAffirmation.text}
                         </p>
                     </div>
@@ -416,15 +475,26 @@ const Streaming: React.FC = () => {
 
         {/* Right Column: Chat & Intentions */}
         <div className="flex-1 lg:w-1/3 bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 flex flex-col h-full">
-          <div className="p-4 border-b border-slate-700">
+          <div className="p-4 border-b border-slate-700 flex justify-between items-center">
             <h3 className="font-semibold text-white">Live Community Chat</h3>
+            <button onClick={handleSaveDiscussion} className="text-slate-400 hover:text-white" title="Save Discussion">
+                <DownloadIcon className="w-5 h-5" />
+            </button>
           </div>
           <div className="flex-1 p-4 space-y-4 overflow-y-auto chatbot-messages">
             {chatMessages.map((msg, index) => (
               <div key={index} className={`flex items-start gap-3 ${msg.sender === 'user' ? 'justify-end' : ''}`}>
                 {msg.sender === 'ai' && <div className="w-8 h-8 flex-shrink-0 bg-amber-500/80 rounded-full flex items-center justify-center p-1 text-slate-900 font-bold">AI</div>}
                 <div className={`p-3 rounded-xl max-w-xs animate-fade-in-short ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-300 rounded-bl-none'}`}>
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                  {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+                  {msg.imageUrl && (
+                      <img 
+                          src={msg.imageUrl} 
+                          alt={msg.imageName || 'Shared image'} 
+                          className="chat-image" 
+                          onClick={() => setViewingImage(msg.imageUrl!)}
+                      />
+                  )}
                 </div>
               </div>
             ))}
@@ -449,6 +519,10 @@ const Streaming: React.FC = () => {
                 placeholder="Share your thoughts..."
                 className="flex-grow bg-slate-700 border border-slate-600 rounded-full py-2 px-3 text-white focus:ring-amber-400 focus:border-amber-400"
               />
+              <input type="file" ref={fileInputRef} onChange={handleFileSelected} className="hidden" accept="image/png, image/jpeg" />
+              <button type="button" onClick={handleShareImageClick} className="bg-slate-700 text-slate-300 w-10 h-10 rounded-full hover:bg-slate-600 transition-colors flex items-center justify-center flex-shrink-0" aria-label="Share an image">
+                <PhotoIcon className="w-5 h-5" />
+              </button>
               <button 
                 type="submit"
                 className="bg-amber-500 text-slate-900 font-semibold w-10 h-10 rounded-full hover:bg-amber-400 transition-colors disabled:opacity-50 flex items-center justify-center flex-shrink-0"

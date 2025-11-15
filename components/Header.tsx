@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from '../types';
-import { DashboardIcon, SermonIcon, MeditationIcon, ChallengeIcon, StreamIcon, TrophyIcon, CalendarIcon, BookIcon, ScrollIcon, UsersIcon, SparklesIcon, LibraryIcon, BriefcaseIcon, MusicIcon, PrayerIcon } from './Icons';
+import { DashboardIcon, SermonIcon, MeditationIcon, ChallengeIcon, StreamIcon, TrophyIcon, CalendarIcon, BookIcon, ScrollIcon, UsersIcon, SparklesIcon, LibraryIcon, BriefcaseIcon, MusicIcon, PrayerIcon, PhotoIcon, ImageAnalysisIcon, VideoAnalysisIcon, MicIcon } from './Icons';
 
 interface HeaderProps {
   currentView: View;
@@ -49,6 +49,10 @@ const Header: React.FC<HeaderProps> = ({ currentView, setView, completedChalleng
     { view: View.Prayers, label: 'Prayers', icon: <PrayerIcon /> },
     { view: View.Meditations, label: 'Meditations', icon: <MeditationIcon /> },
     { view: View.MusicHub, label: 'Music Hub', icon: <MusicIcon /> },
+    { view: View.ImageGeneration, label: 'Image Generation', icon: <PhotoIcon /> },
+    { view: View.ImageAnalysis, label: 'Image Analysis', icon: <ImageAnalysisIcon /> },
+    { view: View.VideoAnalysis, label: 'Video Analysis', icon: <VideoAnalysisIcon /> },
+    { view: View.Transcription, label: 'Transcription', icon: <MicIcon /> },
     { view: View.Challenges, label: 'Challenges', icon: <ChallengeIcon /> },
     { view: View.ResourceCentre, label: 'Resource Centre', icon: <BriefcaseIcon /> },
     { view: View.Library, label: 'Library', icon: <LibraryIcon /> },

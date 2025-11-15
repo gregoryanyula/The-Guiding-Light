@@ -10,6 +10,20 @@ const isQuotaError = (error: any): boolean => {
            errorString.includes('quota');
 };
 
+// FIX: Add and export ensureVeoApiKey to handle API key selection for Veo models.
+export const ensureVeoApiKey = async (): Promise<boolean> => {
+    if (typeof window !== 'undefined' && (window as any).aistudio) {
+        if (await (window as any).aistudio.hasSelectedApiKey()) {
+            return true;
+        }
+        await (window as any).aistudio.openSelectKey();
+        // Per guidelines, assume success after opening the dialog to mitigate race conditions.
+        return true;
+    }
+    // If not in the aistudio environment, assume the key is set and proceed.
+    return true;
+};
+
 export const getDynamicWelcomeMessage = async (userName: string): Promise<string> => {
   try {
     const timeOfDay = new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening';
@@ -60,8 +74,17 @@ export const getDailyInspiration = async (): Promise<DailyInspiration | null | '
       }
     });
 
-    const jsonText = response.text;
-    const { inspirationText, imagePrompt } = JSON.parse(jsonText);
+    let inspirationText, imagePrompt;
+    try {
+        const jsonText = response.text;
+        const parsed = JSON.parse(jsonText);
+        inspirationText = parsed.inspirationText;
+        imagePrompt = parsed.imagePrompt;
+        if (!inspirationText || !imagePrompt) throw new Error("Missing properties in JSON response.");
+    } catch (e) {
+        console.error("Failed to parse daily inspiration JSON:", e, "Raw text:", response.text);
+        return null;
+    }
 
     const imageResponse = await ai.models.generateImages({
       model: 'imagen-4.0-generate-001',
@@ -91,9 +114,12 @@ export const getDailyInspiration = async (): Promise<DailyInspiration | null | '
 };
 
 
-export const generateSermon = async (topic: string, length: string, tone: string): Promise<SermonContent | null | 'QUOTA_EXCEEDED'> => {
+export const generateSermon = async (topic: string, length: string, tone: string, speakerName?: string): Promise<SermonContent | null | 'QUOTA_EXCEEDED'> => {
   try {
-    const prompt = `As The Guiding Light AI, write a ${length} sermon on '${topic}' with a ${tone} tone. Structure it with an introduction, main points, and a conclusion. After the sermon, provide two distinct prompts: one for a text-to-video AI (like Veo) to create accompanying visuals, and one for a text-to-audio AI (like nano-banana) to narrate it, including suggestions for background music.`;
+    const speakerInstruction = speakerName
+      ? ` The sermon is to be delivered by "${speakerName}". Write the sermon from their perspective or in a style suitable for them. You can optionally return the speaker's name in a 'speaker' field.`
+      : '';
+    const prompt = `As The Guiding Light AI, write a ${length} sermon on '${topic}' with a ${tone} tone.${speakerInstruction} Structure it with an introduction, main points, and a conclusion. After the sermon, provide two distinct prompts: one for a text-to-video AI (like Veo) to create accompanying visuals, and one for a text-to-audio AI (like nano-banana) to narrate it, including suggestions for background music.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -114,6 +140,10 @@ export const generateSermon = async (topic: string, length: string, tone: string
             audioPrompt: {
               type: Type.STRING,
               description: 'A prompt for a text-to-audio AI to generate a narration with music.'
+            },
+            speaker: {
+              type: Type.STRING,
+              description: "Optional: The name of the speaker if it was provided in the prompt."
             }
           },
           required: ['sermonText', 'videoPrompt', 'audioPrompt']
@@ -121,8 +151,13 @@ export const generateSermon = async (topic: string, length: string, tone: string
       }
     });
     
-    const jsonText = response.text;
-    return JSON.parse(jsonText) as SermonContent;
+    try {
+        const jsonText = response.text;
+        return JSON.parse(jsonText) as SermonContent;
+    } catch (e) {
+        console.error("Failed to parse sermon JSON:", e, "Raw text:", response.text);
+        return null;
+    }
   } catch (error) {
     console.error("Error generating sermon:", error);
     if (isQuotaError(error)) {
@@ -162,8 +197,13 @@ export const generatePrayer = async (topic: string, length: string, tone: string
       }
     });
     
-    const jsonText = response.text;
-    return JSON.parse(jsonText) as PrayerContent;
+    try {
+        const jsonText = response.text;
+        return JSON.parse(jsonText) as PrayerContent;
+    } catch (e) {
+        console.error("Failed to parse prayer JSON:", e, "Raw text:", response.text);
+        return null;
+    }
   } catch (error) {
     console.error("Error generating prayer:", error);
     if (isQuotaError(error)) {
@@ -340,8 +380,13 @@ export const generateMeditation = async (goal: string, length: string): Promise<
             }
         });
         
-        const jsonText = response.text;
-        return JSON.parse(jsonText) as MeditationContent;
+        try {
+            const jsonText = response.text;
+            return JSON.parse(jsonText) as MeditationContent;
+        } catch (e) {
+            console.error("Failed to parse meditation JSON:", e, "Raw text:", response.text);
+            return null;
+        }
     } catch (error) {
         console.error("Error generating meditation:", error);
         if (isQuotaError(error)) {
@@ -353,26 +398,34 @@ export const generateMeditation = async (goal: string, length: string): Promise<
 
 // --- ADVANCED VIDEO GENERATION ---
 
+// FIX: Update generateVideoWithVeo to accept aspectRatio, use the latest model, and create a new GoogleGenAI instance for each call as per guidelines.
 /**
  * A helper function to generate video using Google's Veo model.
  * It initiates the generation, polls for completion, and returns a usable video URL.
  * @param prompt The detailed prompt for the video generation AI.
  * @param onProgress A callback to update the UI with the generation progress.
+ * @param aspectRatio The desired aspect ratio for the video.
  * @returns A local object URL for the generated video blob, a special "QUOTA_EXCEEDED" string for quota errors, or null on other failures.
  */
 const generateVideoWithVeo = async (
   prompt: string,
-  onProgress: (progress: number) => void
-): Promise<string | null> => {
+  onProgress: (progress: number) => void,
+  aspectRatio: '16:9' | '9:16' | '1:1'
+): Promise<string | null | 'QUOTA_EXCEEDED'> => {
   try {
     onProgress(0);
     
+    // Per guidelines, create a new instance right before the API call for Veo.
+    const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     // Step 1: Start the video generation operation
-    let operation = await ai.models.generateVideos({
-      model: 'veo-2.0-generate-001',
+    let operation = await localAi.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
       prompt: prompt,
       config: {
-        numberOfVideos: 1
+        numberOfVideos: 1,
+        aspectRatio: aspectRatio,
+        resolution: '720p',
       }
     });
     
@@ -385,7 +438,7 @@ const generateVideoWithVeo = async (
     while (!operation.done && pollCount < maxPolls) {
       pollCount++;
       await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds between polls
-      operation = await ai.operations.getVideosOperation({ operation: operation });
+      operation = await localAi.operations.getVideosOperation({ operation: operation });
       
       const progress = 10 + Math.round((pollCount / maxPolls) * 80);
       onProgress(progress);
@@ -418,11 +471,12 @@ const generateVideoWithVeo = async (
     // Step 4: Revoke any previous object URLs to prevent memory leaks and return a new one
     return URL.createObjectURL(videoBlob);
   } catch (error) {
-    console.error("Error generating video with Veo:", error);
-    onProgress(100); // Ensure progress completes on error
+    onProgress(100);
     if (isQuotaError(error)) {
-        return "QUOTA_EXCEEDED";
+      console.warn("Veo generation quota exceeded. Returning fallback signal.", error);
+      return "QUOTA_EXCEEDED";
     }
+    console.error("Error generating video with Veo:", error);
     return null;
   }
 };
@@ -431,12 +485,13 @@ export const generateMeditationVideo = async (
   prompt: string,
   style: string,
   onProgress: (progress: number) => void
-): Promise<string | null> => {
+): Promise<string | null | 'QUOTA_EXCEEDED'> => {
     try {
         const finalVideoPrompt = `Create a video for a guided meditation. The core theme is: "${prompt}". The desired artistic style is: "${style}". Combine these ideas into a seamless, tranquil, and visually immersive experience. The video should be slow-paced, with gentle camera movements and a serene atmosphere.`;
         
         console.log("Generated Veo Prompt for Meditation:", finalVideoPrompt);
-        return await generateVideoWithVeo(finalVideoPrompt, onProgress);
+        // FIX: Pass a default aspect ratio to the updated generateVideoWithVeo function.
+        return await generateVideoWithVeo(finalVideoPrompt, onProgress, '16:9');
     } catch (error) {
         console.error("Error in generateMeditationVideo:", error);
         onProgress(100);
@@ -467,9 +522,9 @@ export const generateSocialPost = async (sermonText: string): Promise<string> =>
 };
 
 
-export const generateEventPlan = async (topic: string): Promise<any | null> => {
+export const generateEventPlan = async (eventTopic: string): Promise<any | null> => {
   try {
-    const prompt = `As The Guiding Light AI, you are an expert event host. A user wants to create a "Deep Dive Discussion" event on the topic of "${topic}". Generate a structured plan for this 30-minute virtual event. The plan should be engaging, reflective, and foster a sense of community.`;
+    const prompt = `As The Guiding Light AI, you are an expert event host. A user wants to create a "Deep Dive Discussion" event on the topic of "${eventTopic}". Generate a structured plan for this 30-minute virtual event. The plan should be engaging, reflective, and foster a sense of community.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -866,24 +921,6 @@ export const generateRatingFeedback = async (rating: number, topic: string): Pro
   }
 };
 
-export const generateSermonAudio = async (basePrompt: string, style: string): Promise<string | null> => {
-  try {
-    // Simulate a call to a text-to-audio AI like Bana.
-    const finalPrompt = `${basePrompt}. The desired narration style is: ${style}.`;
-    console.log("Generating audio for prompt:", finalPrompt);
-    // This will take a few seconds to simulate the generation process.
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    // In a real implementation, this would be an API call that returns audio data or a URL.
-    // For this simulation, we'll return a URL to a placeholder audio file.
-    // This is a royalty-free piece of music to demonstrate functionality.
-    return "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
-  } catch (error) {
-    console.error("Error generating sermon audio:", error);
-    return null;
-  }
-};
-
 export const suggestSermonAudioStyles = async (sermonText: string): Promise<{title: string, description: string}[] | null> => {
   try {
     const prompt = `You are an expert sound designer AI specializing in immersive audio for sermons and speeches. Based on the following sermon text, generate 3 distinct audio style concepts.
@@ -1055,30 +1092,13 @@ Return a valid JSON array of objects, each with "title" and "description" string
   }
 };
 
-export const generateMeditationAudio = async (basePrompt: string, style: string): Promise<string | null> => {
-  try {
-    // In a real implementation, the 'style' would be integrated into the final prompt to the audio AI.
-    const finalPrompt = `${basePrompt}. The desired narration style is: ${style}.`;
-    console.log("Generating meditation audio for final prompt:", finalPrompt);
-    
-    // This will take a few seconds to simulate the generation process.
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // In a real implementation, this would be an API call that returns audio data or a URL.
-    // For this simulation, we'll return a URL to a placeholder audio file.
-    // This is a royalty-free piece of meditative music to demonstrate functionality.
-    return "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"; 
-  } catch (error) {
-    console.error("Error generating meditation audio:", error);
-    return null;
-  }
-};
-
+// FIX: Update function signature to accept aspectRatio, resolving argument mismatch errors.
 export const generateSermonVideo = async (
   sermonText: string,
   style: string,
-  onProgress: (progress: number) => void
-): Promise<string | null> => {
+  onProgress: (progress: number) => void,
+  aspectRatio: '16:9' | '9:16'
+): Promise<string | null | 'QUOTA_EXCEEDED'> => {
     try {
         onProgress(5); // Initial progress for prompt generation
         const promptGenPrompt = `You are an AI Creative Director specializing in video generation. Your task is to create a single, highly descriptive, and artistic prompt for a text-to-video AI model (like Google Veo) based on a sermon text and a desired artistic style.
@@ -1103,7 +1123,8 @@ export const generateSermonVideo = async (
         const finalVideoPrompt = promptResponse.text;
         console.log("Generated Veo Prompt for Sermon:", finalVideoPrompt);
 
-        return await generateVideoWithVeo(finalVideoPrompt, onProgress);
+        // FIX: Pass aspectRatio to the updated helper function.
+        return await generateVideoWithVeo(finalVideoPrompt, onProgress, aspectRatio);
     } catch (error) {
         console.error("Error in generateSermonVideo:", error);
         onProgress(100);
@@ -1871,8 +1892,9 @@ export const editImageWithAI = async (base64Image: string, mimeType: string, pro
                     { text: prompt },
                 ],
             },
+            // FIX: Corrected responseModalities to only include IMAGE as per guidelines.
             config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT],
+                responseModalities: [Modality.IMAGE],
             },
         });
 
@@ -2410,24 +2432,6 @@ Return a valid JSON array of objects, each with "title" and "description" string
   }
 };
 
-export const generateNarration = async (textToNarrate: string, style: string): Promise<string | null> => {
-  try {
-    const finalPrompt = `Narrate the following text in the style of: ${style}. Text: "${textToNarrate.substring(0, 200)}..."`;
-    console.log("Generating narration for prompt:", finalPrompt);
-    
-    // Simulate generation time based on text length
-    const delay = Math.max(3000, Math.min(10000, textToNarrate.length / 50)); 
-    await new Promise(resolve => setTimeout(resolve, delay));
-    
-    // Cycle through placeholder audio files
-    const songId = (textToNarrate.length % 9) + 1; // 1 to 9
-    return `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${songId}.mp3`;
-  } catch (error) {
-    console.error("Error generating narration audio:", error);
-    return null;
-  }
-};
-
 export const getMeditationThemes = async (): Promise<MeditationTheme[] | null | 'QUOTA_EXCEEDED'> => {
   try {
     const prompt = `You are The Guiding Light AI. Generate a JSON array of 3 distinct and popular meditation themes. The themes should be inspired by concepts like: love and peace, relaxation, mindfulness, self-love, stress relief, healing, inner peace, calming, positive energy, sleep, and spiritual awakening.
@@ -2754,7 +2758,7 @@ export const generateMusicVisualizer = async (
   colorPalette: string,
   motionIntensity: string,
   onProgress: (progress: number) => void
-): Promise<string | null> => {
+): Promise<string | null | 'QUOTA_EXCEEDED'> => {
     try {
         const finalVideoPrompt = `Create a short, 8-second, seamlessly looping, abstract music visualizer video. The core theme is: "${prompt}". 
         
@@ -2765,7 +2769,8 @@ export const generateMusicVisualizer = async (
         The overall video should be hypnotic and beautiful, focusing on flowing light, abstract textures, and movement. Do not show any people or concrete objects.`;
         
         console.log("Generated Veo Prompt for Visualizer:", finalVideoPrompt);
-        return await generateVideoWithVeo(finalVideoPrompt, onProgress);
+        // FIX: Pass a default aspect ratio to the updated generateVideoWithVeo function.
+        return await generateVideoWithVeo(finalVideoPrompt, onProgress, '1:1');
     } catch (error) {
         console.error("Error in generateMusicVisualizer:", error);
         onProgress(100);
@@ -2804,6 +2809,60 @@ export const getTrendingTracks = async (): Promise<AIMusicTrack[]> => {
                  { id: 'c2-1', userName: 'Kenji', text: 'This is a vibe.', createdAt: new Date(Date.now() - 5 * 3600000).toISOString() }
             ],
             createdBy: 'David', createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        },
+        {
+            id: 'trend-3',
+            title: 'Gospel Morning',
+            artist: 'Spirit Singers AI',
+            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+            imageUrl: 'PLACEHOLDER_GOSPEL',
+            prompt: 'An uplifting gospel choir performance with a powerful lead vocal and organ accompaniment.',
+            genre: 'Gospel', mood: 'Uplifting', instrumentation: 'Choir', tempo: 'Medium', vocals: 'Female',
+            likes: 2104, shares: 450,
+            comments: [
+                { id: 'c3-1', userName: 'Maria', text: 'This gives me chills! So powerful.', createdAt: new Date(Date.now() - 4 * 3600000).toISOString() },
+            ],
+            createdBy: 'Maria', createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        },
+        {
+            id: 'trend-4',
+            title: 'Forest Awakening',
+            artist: 'NatureSynth',
+            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+            imageUrl: 'PLACEHOLDER_NATURE',
+            prompt: 'A gentle new age track with sounds of birds, a flowing stream, and soft pan flutes.',
+            genre: 'New Age', mood: 'Peaceful', instrumentation: 'Flute', tempo: 'Slow', vocals: 'None',
+            likes: 850, shares: 120,
+            comments: [],
+            createdBy: 'Kenji', createdAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+        },
+        {
+            id: 'trend-5',
+            title: 'Cybernetic Dreams',
+            artist: 'Dataflow',
+            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+            imageUrl: 'PLACEHOLDER_CYBER',
+            prompt: 'An energetic electronic track with a driving beat, arpeggiated synths, and a futuristic vibe.',
+            genre: 'Electronic', mood: 'Energetic', instrumentation: 'Synth', tempo: 'Fast', vocals: 'None',
+            likes: 1532, shares: 310,
+            comments: [
+                { id: 'c5-1', userName: 'David', text: 'Perfect for a workout!', createdAt: new Date(Date.now() - 6 * 3600000).toISOString() },
+            ],
+            createdBy: 'David', createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        },
+        {
+            id: 'trend-6',
+            title: 'Acoustic Heart',
+            artist: 'Lyric Weavers AI',
+            audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+            imageUrl: 'PLACEHOLDER_ACOUSTIC',
+            prompt: 'A simple and heartfelt acoustic ballad with a male vocalist and gentle guitar strumming.',
+            genre: 'Acoustic', mood: 'Reflective', instrumentation: 'Acoustic Guitar', tempo: 'Slow', vocals: 'Male',
+            likes: 1899, shares: 350,
+            comments: [
+                { id: 'c6-1', userName: 'Elena', text: 'So touching and raw.', createdAt: new Date(Date.now() - 7 * 3600000).toISOString() },
+            ],
+            createdBy: 'Elena', createdAt: new Date(Date.now() - 6 * 86400000).toISOString(),
         }
     ];
 };
@@ -2969,4 +3028,224 @@ Return a valid JSON array of objects.`;
         console.error("Error searching for copyright-free music:", error);
         return null;
     }
+};
+
+export const suggestSermonTopics = async (activity: {
+    sermonHistory: string[];
+    meditationHistory: string[];
+}): Promise<string[] | null> => {
+    try {
+        const prompt = `You are an AI assistant for spiritual leaders called "The Guiding Light AI". Your task is to suggest 4 creative and relevant sermon topics.
+
+Consider two sources of inspiration:
+1.  **User's Recent Activity:** The user has recently created sermons on "${activity.sermonHistory.join(', ') || 'various topics'}" and meditated on "${activity.meditationHistory.join(', ') || 'various themes'}". Use this to generate 2 personalized suggestions.
+2.  **Current Spiritual Trends:** Based on general spiritual, philosophical, and well-being discussions happening in the world today, generate 2 broader, trending topics.
+
+The topics should be concise and engaging (e.g., "Finding Stillness in a Noisy World", "The Courage to Forgive", "Navigating Change with Grace").
+
+Return a valid JSON array of 4 unique strings.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                }
+            }
+        });
+        
+        try {
+            const jsonText = response.text;
+            return JSON.parse(jsonText);
+        } catch(e) {
+            console.error("Failed to parse sermon topic suggestions JSON:", e, "Raw text:", response.text);
+            return null;
+        }
+
+    } catch (error) {
+        console.error("Error suggesting sermon topics:", error);
+        return null;
+    }
+};
+
+// --- NEWLY ADDED FUNCTIONS TO FIX ERRORS ---
+
+// FIX: Add generateImage function to create images using Imagen.
+export const generateImage = async (prompt: string, aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4"): Promise<string | null> => {
+    try {
+        const response = await ai.models.generateImages({
+            model: 'imagen-4.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: aspectRatio,
+            },
+        });
+        
+        if (response.generatedImages && response.generatedImages.length > 0) {
+            return response.generatedImages[0].image.imageBytes;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error generating image:", error);
+        return null;
+    }
+};
+
+// FIX: Add analyzeImage function for multimodal queries with images.
+export const analyzeImage = async (base64Image: string, mimeType: string, prompt: string): Promise<string | null> => {
+    try {
+        const imagePart = { inlineData: { data: base64Image, mimeType: mimeType } };
+        const textPart = { text: prompt };
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [imagePart, textPart] },
+        });
+
+        return response.text;
+    } catch (error) {
+        console.error("Error analyzing image:", error);
+        return null;
+    }
+};
+
+// FIX: Add analyzeVideo function for multimodal queries with videos.
+export const analyzeVideo = async (base64Video: string, mimeType: string, prompt: string): Promise<string | null> => {
+    try {
+        const videoPart = { inlineData: { data: base64Video, mimeType: mimeType } };
+        const textPart = { text: prompt };
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [videoPart, textPart] },
+        });
+
+        return response.text;
+    } catch (error) {
+        console.error("Error analyzing video:", error);
+        return null;
+    }
+};
+
+// FIX: Add transcribeAudio function to handle audio-to-text transcription.
+export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string | null> => {
+    try {
+        const audioPart = { inlineData: { data: base64Audio, mimeType: mimeType } };
+        const textPart = { text: "Transcribe this audio." };
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [audioPart, textPart] },
+        });
+
+        return response.text;
+    } catch (error) {
+        console.error("Error transcribing audio:", error);
+        return null;
+    }
+};
+
+
+// --- TEXT TO SPEECH ---
+
+const generateTextToSpeechAudio = async (text: string, style: string): Promise<string | null> => {
+  try {
+    const decode = (base64: string): Uint8Array => {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    const pcmToWav = (pcmData: Uint8Array): Blob => {
+      const sampleRate = 24000;
+      const numChannels = 1;
+      const bitsPerSample = 16;
+      const pcm = new Int16Array(pcmData.buffer);
+      const format = 1; // PCM
+      const subChunk1Size = 16;
+      const blockAlign = (numChannels * bitsPerSample) / 8;
+      const byteRate = sampleRate * blockAlign;
+      const subChunk2Size = pcm.length * (bitsPerSample / 8);
+      const chunkSize = 36 + subChunk2Size;
+      const buffer = new ArrayBuffer(44 + subChunk2Size);
+      const view = new DataView(buffer);
+      const writeString = (view: DataView, offset: number, string: string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
+      }
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, chunkSize, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, subChunk1Size, true);
+      view.setUint16(20, format, true);
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, bitsPerSample, true);
+      writeString(view, 36, 'data');
+      view.setUint32(40, subChunk2Size, true);
+      let offset = 44;
+      for (let i = 0; i < pcm.length; i++, offset += 2) {
+          view.setInt16(offset, pcm[i], true);
+      }
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    const localAi = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `Narrate with a ${style} voice: ${text.substring(0, 5000)}`; // Truncate long texts
+    let voiceName = 'Zephyr'; // Gentle female default
+    if (style.toLowerCase().includes('male')) { voiceName = 'Puck'; }
+    else if (style.toLowerCase().includes('authoritative') || style.toLowerCase().includes('scholarly')) { voiceName = 'Kore'; }
+
+    const response = await localAi.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName as any } },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (base64Audio) {
+      const pcmData = decode(base64Audio);
+      const wavBlob = pcmToWav(pcmData);
+      return URL.createObjectURL(wavBlob);
+    }
+    return null;
+  } catch (error) {
+    if (isQuotaError(error)) { console.warn("TTS generation quota exceeded.", error); }
+    else { console.error("Error generating text to speech audio:", error); }
+    return null;
+  }
+};
+
+export const generateSermonAudio = async (sermonText: string, style: string): Promise<string | null> => {
+    return generateTextToSpeechAudio(sermonText, style);
+};
+
+export const generatePrayerAudio = async (prayerText: string, style: string): Promise<string | null> => {
+    return generateTextToSpeechAudio(prayerText, style);
+};
+
+export const generateMeditationAudio = async (scriptText: string, style: string): Promise<string | null> => {
+    return generateTextToSpeechAudio(scriptText, style);
+};
+
+export const generateNarration = async (textToNarrate: string, style: string): Promise<string | null> => {
+    return generateTextToSpeechAudio(textToNarrate, style);
 };

@@ -4,7 +4,8 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 // FIX: Changed to a named import to resolve the module export error.
 import { SermonGenerator } from './components/SermonGenerator';
-import PrayerGenerator from './components/PrayerGenerator';
+// FIX: Changed to a named import to resolve the module export error.
+import { PrayerGenerator } from './components/PrayerGenerator';
 // FIX: Changed to a named import to resolve the module not found error, consistent with other components.
 import { MeditationGenerator } from './components/MeditationGenerator';
 import Challenges, { challenges } from './components/Challenges';
@@ -22,8 +23,12 @@ import ResourceCentre from './components/ResourceCentre';
 import Chatbot from './components/Chatbot';
 import Spinner from './components/Spinner';
 import { CloseIcon, DownloadIcon } from './components/Icons';
-import { generateMeditation, generateProfileAnalysis, generateRewardPoster, generateRewardSoundscape, generateTagsForFile } from './services/geminiService';
+import { generateMeditation, generatePrayer, generateProfileAnalysis, generateRewardPoster, generateRewardSoundscape, generateTagsForFile } from './services/geminiService';
 import MusicHub from './components/MusicHub';
+import ImageGenerator from './components/ImageGenerator';
+import ImageAnalysis from './components/ImageAnalysis';
+import VideoAnalysis from './components/VideoAnalysis';
+import Transcription from './components/Transcription';
 
 // --- MOCK DATA ---
 const mockUsers: User[] = [
@@ -188,11 +193,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user, onLogout }) => {
   });
   const [sermonTopicsHistory, setSermonTopicsHistory] = useState<string[]>(() => {
     const saved = localStorage.getItem(`sermonTopicsHistory_${user.id}`);
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved) : ['The Power of Forgiveness', 'Finding Stillness'];
   });
   const [meditationGoalsHistory, setMeditationGoalsHistory] = useState<string[]>(() => {
     const saved = localStorage.getItem(`meditationGoalsHistory_${user.id}`);
-    return saved ? JSON.parse(saved) : [];
+    return saved ? JSON.parse(saved) : ['Cultivating Inner Peace', 'Letting Go of Attachment'];
   });
   const [userTitle, setUserTitle] = useState<string>(() => {
     return localStorage.getItem(`userTitle_${user.id}`) || 'Seeker of Light';
@@ -247,6 +252,49 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user, onLogout }) => {
   useEffect(() => {
       localStorage.setItem(libraryStorageKey, JSON.stringify(libraryItems));
   }, [libraryItems, libraryStorageKey]);
+
+  // Add initial prayer to user's library on first load.
+  useEffect(() => {
+    const addInitialPrayer = async () => {
+        const prayerAddedKey = `initialPrayerAdded_v2_${user.id}`;
+        if (localStorage.getItem(prayerAddedKey)) return;
+
+        const prayerName = "Prayer for Peace in Difficult Times";
+        // Check if already present to avoid duplicates if local storage is cleared
+        if (libraryItems.some(item => item.name === prayerName)) {
+            localStorage.setItem(prayerAddedKey, 'true');
+            return;
+        }
+
+        console.log("Generating initial prayer for user library...");
+        const prayerContent = await generatePrayer('finding peace in difficult times', '1-minute', 'reverent');
+        
+        if (prayerContent && typeof prayerContent !== 'string') {
+            const prayerText = prayerContent.prayerText;
+            const contentBase64 = btoa(unescape(encodeURIComponent(prayerText)));
+            
+            const newItem: LibraryItem = {
+                id: `lib-initial-${Date.now()}`,
+                name: prayerName,
+                type: 'document',
+                mimeType: 'text/plain',
+                content: contentBase64,
+                tags: ['prayer', 'peace', 'guidance'],
+                createdAt: new Date().toISOString(),
+            };
+
+            setLibraryItems(prev => [newItem, ...prev]);
+            addToast(`A '${prayerName}' has been added to your library.`);
+            localStorage.setItem(prayerAddedKey, 'true');
+        }
+    };
+
+    addInitialPrayer();
+    // This effect should run once when the library is loaded.
+    // The flag in localStorage prevents it from running again for the same user.
+    // The dependency on libraryItems ensures we don't add a duplicate if it already exists.
+  }, [user.id, libraryItems]);
+
 
   const handleAddToLibrary = async (name: string, content: string, mimeType: string) => {
     const type = getLibraryItemType(mimeType);
@@ -459,9 +507,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user, onLogout }) => {
             onCreateGroup={handleCreateGroup}
         />;
       case View.Sermons:
-        return <SermonGenerator onSermonGenerated={handleSermonGenerated} {...commonProps} />;
+        return <SermonGenerator 
+            user={user}
+            onSermonGenerated={handleSermonGenerated}
+            sermonTopicsHistory={sermonTopicsHistory}
+            meditationGoalsHistory={meditationGoalsHistory}
+            {...commonProps} 
+        />;
       case View.Prayers:
-        return <PrayerGenerator onPrayerGenerated={handlePrayerGenerated} {...commonProps} />;
+        return <PrayerGenerator user={user} onPrayerGenerated={handlePrayerGenerated} {...commonProps} />;
       case View.ResourceCentre:
         return <ResourceCentre {...commonProps} />;
       case View.StudyAssistant:
@@ -507,6 +561,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user, onLogout }) => {
         return <Streaming />;
       case View.Events:
         return <Events />;
+      case View.ImageGeneration:
+        return <ImageGenerator {...commonProps} />;
+      case View.ImageAnalysis:
+        return <ImageAnalysis />;
+      case View.VideoAnalysis:
+        return <VideoAnalysis />;
+      case View.Transcription:
+        return <Transcription />;
       case View.Profile:
         return (
           <Profile 
@@ -516,7 +578,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ user, onLogout }) => {
             meditationsGeneratedCount={meditationsGeneratedCount}
             connectionsCount={connections.length}
             groupsJoinedCount={userGroups.length}
-            favoriteTracksCount={favoriteTrackIds.length}
+            favoriteTrackIds={favoriteTrackIds.length}
             userTitle={userTitle}
             userAvatar={userAvatar}
             onSetTitle={setUserTitle}

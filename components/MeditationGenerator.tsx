@@ -277,7 +277,7 @@ export const MeditationGenerator: React.FC<MeditationGeneratorProps> = ({ onMedi
   }, [meditationContent, step, handleSuggestAudioStyles, handleSuggestVideoStyles]);
 
   const handleGenerateAudio = async () => {
-    if (!meditationContent?.audioPrompt || !selectedAudioStyle) return;
+    if (!meditationContent?.meditationScript || !selectedAudioStyle) return;
     
     setIsGeneratingAudio(true);
     setAudioUrl(null);
@@ -297,7 +297,7 @@ export const MeditationGenerator: React.FC<MeditationGeneratorProps> = ({ onMedi
       setAudioStatus(statusMessages[messageIndex]);
     }, 2000);
 
-    const result = await generateMeditationAudio(meditationContent.audioPrompt, selectedAudioStyle);
+    const result = await generateMeditationAudio(meditationContent.meditationScript, selectedAudioStyle);
     
     clearInterval(statusInterval);
 
@@ -512,323 +512,162 @@ export const MeditationGenerator: React.FC<MeditationGeneratorProps> = ({ onMedi
           </div>
         </div>
 
-        {/* Interactive Session */}
-        <div className="mt-8 pt-8 border-t border-slate-700">
-          <h3 className="text-xl font-semibold text-amber-400 mb-4">Engage with Your Session</h3>
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <button
-              onClick={() => setShowTimer(true)}
-              className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
-            >
-              <HourglassIcon className="w-5 h-5" />
-              Start Guided Timer
-            </button>
-            <button
-              onClick={() => setShowScheduleModal(true)}
-              className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors font-semibold"
-            >
-              <CalendarPlusIcon className="w-5 h-5" />
-              Schedule for Later
-            </button>
-          </div>
-        </div>
-        
-        {/* Multimedia Enhancements */}
-        <div className="mt-8 pt-8 border-t border-slate-700">
-          <h3 className="text-xl font-semibold text-amber-400 mb-4">Multimedia Enhancements</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Video Card */}
-            <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
-              <h4 className="font-semibold text-lg flex items-center mb-2"><VideoIcon className="w-6 h-6 mr-2 text-blue-400"/> Visual Accompaniment</h4>
-              <p className="text-slate-400 italic text-sm mb-4">Prompt: "{meditationContent.videoPrompt}"</p>
-              <div className="flex-grow flex flex-col justify-center">
-                {isGeneratingVideo ? (
-                    <div className="flex flex-col items-center justify-center p-6 space-y-3 bg-slate-800 rounded-lg">
-                        <p className="text-slate-300 font-semibold">{videoStatus}</p>
-                        <div className="w-full bg-slate-700 rounded-full h-2.5">
-                            <div 
-                                className="bg-amber-400 h-2.5 rounded-full transition-all duration-500 ease-in-out" 
-                                style={{ width: `${videoGenerationProgress}%` }}
-                                role="progressbar"
-                                aria-valuenow={videoGenerationProgress}
-                                aria-valuemin={0}
-                                aria-valuemax={100}
-                            ></div>
-                        </div>
-                        <p className="text-lg font-bold text-white">{videoGenerationProgress}%</p>
-                        <p className="text-xs text-slate-500 text-center">Video generation can take several minutes.</p>
-                    </div>
-                ) : videoError ? (
-                    <div className="flex flex-col items-center justify-center bg-red-900/20 text-red-300 rounded-lg p-4 text-center">
-                        <p>{videoError}</p>
-                        <button
-                            onClick={handleGenerateVideo}
-                            className="mt-4 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
-                        >
-                            Retry
-                        </button>
-                    </div>
-                ) : videoUrl ? (
-                    <div className="aspect-video rounded-lg overflow-hidden border border-slate-600">
-                        <video
-                            src={videoUrl}
-                            controls
-                            autoPlay
-                            loop
-                            muted
-                            className="w-full h-full object-cover bg-black"
-                            aria-label="Generated meditation video"
-                        />
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center min-h-[150px] bg-slate-800 rounded-lg p-4 text-center space-y-4">
-                      {isSuggestingVideoStyles ? (
-                          <div className="flex flex-col items-center gap-2 text-slate-400">
-                              <Spinner />
-                              <span>AI Creative Director is analyzing...</span>
+        {/* Multimedia Agents & Tools */}
+        <div className="pt-6 border-t border-slate-700 space-y-8">
+          <div>
+            <h3 className="text-xl font-semibold text-amber-400 mb-4">Enhance Your Session</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Video Card */}
+              <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
+                <h4 className="font-semibold text-lg flex items-center mb-2"><VideoIcon className="w-6 h-6 mr-2 text-blue-400"/> Immersive Visuals</h4>
+                <div className="flex-grow flex flex-col justify-center">
+                  {isGeneratingVideo ? (
+                      <div className="flex flex-col items-center justify-center p-6 space-y-3 bg-slate-800 rounded-lg">
+                          <p className="text-slate-300 font-semibold">{videoStatus}</p>
+                          <div className="w-full bg-slate-700 rounded-full h-2.5"><div className="bg-amber-400 h-2.5 rounded-full" style={{ width: `${videoGenerationProgress}%` }}></div></div>
+                          <p className="text-lg font-bold text-white">{videoGenerationProgress}%</p>
+                          <p className="text-xs text-slate-500">Video generation may take minutes.</p>
+                      </div>
+                  ) : videoError ? (
+                      <div className="text-red-300 text-center p-4">{videoError}</div>
+                  ) : videoUrl ? (
+                      <div className="aspect-video rounded-lg overflow-hidden"><video src={videoUrl} controls autoPlay loop className="w-full h-full object-cover" /></div>
+                  ) : (
+                    <div className="space-y-4">
+                        {isSuggestingVideoStyles ? <div className="flex justify-center"><Spinner /></div> : videoStyleError ? <p className="text-red-300">{videoStyleError}</p> : videoStyles && (
+                          <div className="w-full space-y-3 animate-fade-in-short">
+                             <p className="text-sm font-medium text-slate-300">Choose a visual style:</p>
+                             <div className="thin-scrollbar flex gap-4 overflow-x-auto py-2 -mx-4 px-4">
+                                {videoStyles.map((style, index) => {
+                                    const isSelected = selectedVideoStyle === style.description;
+                                    return (
+                                        <button
+                                            key={index}
+                                            onClick={() => setSelectedVideoStyle(style.description)}
+                                            className={`relative flex-shrink-0 w-56 text-left p-4 rounded-xl border-2 transition-all duration-300 flex flex-col group ${
+                                                isSelected
+                                                    ? 'bg-blue-500/20 border-blue-400 shadow-lg scale-105'
+                                                    : 'bg-slate-900/60 border-slate-700 hover:border-slate-500 hover:-translate-y-1'
+                                            }`}
+                                        >
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center">
+                                                    <CheckCircleIcon className="w-6 h-6 text-blue-400" />
+                                                </div>
+                                            )}
+                                            <h5 className="font-bold text-lg text-white mb-2 transition-colors group-hover:text-amber-300 pr-6">{style.title}</h5>
+                                            <p className="text-slate-400 text-sm flex-grow">{style.description}</p>
+                                        </button>
+                                    )
+                                })}
+                             </div>
+                             <button onClick={handleGenerateVideo} disabled={!selectedVideoStyle} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 font-semibold rounded-lg disabled:opacity-50">
+                                 <SparklesIcon className="w-5 h-5" /> Generate Video
+                             </button>
                           </div>
-                      ) : videoStyleError ? (
-                          <div className="flex flex-col items-center justify-center text-red-300 text-center">
-                              <p>{videoStyleError}</p>
-                              <button
-                                  onClick={handleSuggestVideoStyles}
-                                  className="mt-2 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
-                              >
-                                  Retry
-                              </button>
-                          </div>
-                      ) : videoStyles ? (
-                        <div className="w-full space-y-3 animate-fade-in-short">
-                          <div className="flex justify-between items-center">
-                            <p className="text-sm font-medium text-slate-300">Choose a visual style:</p>
-                            <button onClick={handleSuggestVideoStyles} disabled={isSuggestingVideoStyles} className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50">Suggest Again</button>
-                          </div>
-                          <div className="style-carousel flex gap-4 overflow-x-auto py-2 -mx-4 px-4">
-                            {videoStyles.map((style, index) => {
-                                const isSelected = selectedVideoStyle === style.description;
-                                return (
-                                    <button
-                                        key={index}
-                                        onClick={() => setSelectedVideoStyle(style.description)}
-                                        className={`relative flex-shrink-0 w-56 text-left p-4 rounded-xl border-2 transition-all duration-300 flex flex-col group ${
-                                            isSelected
-                                                ? 'bg-blue-500/20 border-blue-400 shadow-lg scale-105'
-                                                : 'bg-slate-900/60 border-slate-700 hover:border-slate-500 hover:-translate-y-1'
-                                        }`}
-                                    >
-                                        {isSelected && (
-                                            <div className="absolute top-2 right-2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center">
-                                                <CheckCircleIcon className="w-6 h-6 text-blue-400" />
-                                            </div>
-                                        )}
-                                        <h5 className="font-bold text-lg text-white mb-2 transition-colors group-hover:text-amber-300 pr-6">{style.title}</h5>
-                                        <p className="text-slate-400 text-sm flex-grow">{style.description}</p>
-                                    </button>
-                                )
-                            })}
-                          </div>
-                          <button
-                              onClick={handleGenerateVideo}
-                              disabled={!selectedVideoStyle}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                          >
-                              <SparklesIcon className="w-5 h-5" />
-                              Generate Video
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex justify-center items-center"><Spinner /></div>
-                      )}
+                        )}
                     </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              {/* Audio Card */}
+               <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
+                 <h4 className="font-semibold text-lg flex items-center mb-2"><AudioIcon className="w-6 h-6 mr-2 text-green-400"/> Guided Narration</h4>
+                  <div className="flex-grow flex flex-col justify-center">
+                     {isGeneratingAudio ? (
+                        <div className="flex flex-col items-center justify-center p-6 space-y-3"><Spinner /><p className="text-slate-300 font-semibold text-center">{audioStatus}</p></div>
+                     ) : audioError ? (
+                        <div className="text-red-300 text-center p-4">{audioError}</div>
+                     ) : audioUrl ? (
+                         <audio controls src={audioUrl} className="w-full"></audio>
+                     ) : (
+                       <div className="space-y-4">
+                         {isSuggestingAudioStyles ? <div className="flex justify-center"><Spinner /></div> : audioStyleError ? <p className="text-red-300">{audioStyleError}</p> : audioStyles && (
+                           <div className="w-full space-y-3 animate-fade-in-short">
+                             <p className="text-sm font-medium text-slate-300">Choose an audio style:</p>
+                              <div className="thin-scrollbar flex gap-4 overflow-x-auto py-2 -mx-4 px-4">
+                                 {audioStyles.map((style, index) => {
+                                     const isSelected = selectedAudioStyle === style.description;
+                                     return (
+                                        <button
+                                            key={index}
+                                            onClick={() => setSelectedAudioStyle(style.description)}
+                                            className={`relative flex-shrink-0 w-56 text-left p-4 rounded-xl border-2 transition-all duration-300 flex flex-col group ${
+                                                isSelected
+                                                    ? 'bg-green-500/20 border-green-400 shadow-lg scale-105'
+                                                    : 'bg-slate-900/60 border-slate-700 hover:border-slate-500 hover:-translate-y-1'
+                                            }`}
+                                        >
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center">
+                                                    <CheckCircleIcon className="w-6 h-6 text-green-400" />
+                                                </div>
+                                            )}
+                                            <h5 className="font-bold text-lg text-white mb-2 transition-colors group-hover:text-amber-300 pr-6">{style.title}</h5>
+                                            <p className="text-slate-400 text-sm flex-grow">{style.description}</p>
+                                        </button>
+                                     )
+                                 })}
+                              </div>
+                             <button onClick={handleGenerateAudio} disabled={!selectedAudioStyle} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500/20 text-green-300 hover:bg-green-500/30 font-semibold rounded-lg disabled:opacity-50">
+                                 <SparklesIcon className="w-5 h-5" /> Generate Audio
+                             </button>
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </div>
+               </div>
+            </div>
+          </div>
+          
+          {/* Tools: Timer and Poster */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
+              <h4 className="font-semibold text-lg flex items-center mb-2"><HourglassIcon className="w-6 h-6 mr-2 text-purple-400"/> AI Guided Timer</h4>
+              <p className="text-slate-400 text-sm mb-4 flex-grow">Start an immersive timer that displays instructions from the script at the right moments.</p>
+              <button onClick={() => setShowTimer(true)} className="mt-auto w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 font-semibold rounded-lg transition-colors">Start Timed Session</button>
             </div>
             
-            {/* Audio Card */}
-            <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
-              <h4 className="font-semibold text-lg flex items-center mb-2"><AudioIcon className="w-6 h-6 mr-2 text-green-400"/> Audio Narration</h4>
-              <p className="text-slate-400 italic text-sm mb-4">Prompt: "{meditationContent.audioPrompt}"</p>
-              <div className="flex-grow flex flex-col justify-center">
-                {isGeneratingAudio ? (
-                    <div className="flex flex-col items-center justify-center p-6 space-y-3 bg-slate-800 rounded-lg">
-                        <Spinner />
-                        <p className="text-slate-300 font-semibold text-center">{audioStatus}</p>
-                    </div>
-                ) : audioError ? (
-                    <div className="flex flex-col items-center justify-center bg-red-900/20 text-red-300 rounded-lg p-4 text-center">
-                        <p>{audioError}</p>
-                        <button
-                            onClick={handleGenerateAudio}
-                            disabled={!selectedAudioStyle}
-                            className="mt-4 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold disabled:opacity-50"
-                        >
-                            Retry
-                        </button>
-                    </div>
-                ) : audioUrl ? (
-                    <div className="animate-fade-in space-y-3 bg-slate-800 p-3 rounded-lg border border-slate-600">
-                        <audio controls src={audioUrl} className="w-full">
-                            Your browser does not support the audio element.
-                        </audio>
-                        <div className="border-t border-slate-700/50 mt-3 pt-3">
-                            <a 
-                                href={audioUrl} 
-                                download={`${goal.replace(/\s+/g, '_')}_narration.mp3`}
-                                className="flex items-center justify-center gap-2 text-sm text-slate-300 hover:text-amber-300 transition-colors font-semibold"
-                            >
-                                <DownloadIcon className="w-5 h-5" />
-                                <span>Download Narration (MP3)</span>
-                            </a>
-                        </div>
-                    </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center min-h-[150px] bg-slate-800 rounded-lg p-4 text-center space-y-4">
-                    {isSuggestingAudioStyles ? (
-                        <div className="flex flex-col items-center gap-2 text-slate-400">
-                          <Spinner />
-                          <span>AI is designing audio styles...</span>
-                        </div>
-                    ) : audioStyleError ? (
-                        <div className="flex flex-col items-center justify-center text-red-300 text-center">
-                            <p>{audioStyleError}</p>
-                            <button
-                                onClick={handleSuggestAudioStyles}
-                                className="mt-2 flex items-center gap-2 px-4 py-2 bg-amber-500 text-slate-900 rounded-lg hover:bg-amber-400 transition-colors font-semibold"
-                            >
-                                Retry
-                            </button>
-                        </div>
-                    ) : audioStyles ? (
-                      <div className="w-full space-y-3 animate-fade-in-short">
-                        <div className="flex justify-between items-center">
-                          <p className="text-sm font-medium text-slate-300">Choose an audio style:</p>
-                          <button onClick={handleSuggestAudioStyles} disabled={isSuggestingAudioStyles} className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50">Suggest Again</button>
-                        </div>
-                        <div className="style-carousel flex gap-4 overflow-x-auto py-2 -mx-4 px-4">
-                            {audioStyles.map((style, index) => {
-                                const isSelected = selectedAudioStyle === style.description;
-                                return (
-                                    <button
-                                        key={index}
-                                        onClick={() => setSelectedAudioStyle(style.description)}
-                                        className={`relative flex-shrink-0 w-56 text-left p-4 rounded-xl border-2 transition-all duration-300 flex flex-col group ${
-                                            isSelected
-                                                ? 'bg-green-500/20 border-green-400 shadow-lg scale-105'
-                                                : 'bg-slate-900/60 border-slate-700 hover:border-slate-500 hover:-translate-y-1'
-                                        }`}
-                                    >
-                                        {isSelected && (
-                                            <div className="absolute top-2 right-2 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center">
-                                                <CheckCircleIcon className="w-6 h-6 text-green-400" />
-                                            </div>
-                                        )}
-                                        <h5 className="font-bold text-lg text-white mb-2 transition-colors group-hover:text-amber-300 pr-6">{style.title}</h5>
-                                        <p className="text-slate-400 text-sm flex-grow">{style.description}</p>
-                                    </button>
-                                )
-                            })}
-                        </div>
-                        <button
-                            onClick={handleGenerateAudio}
-                            disabled={!selectedAudioStyle}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-500/20 text-green-300 hover:bg-green-500/30 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                        >
-                            <SparklesIcon className="w-5 h-5" />
-                            Generate Audio Narration
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex justify-center items-center"><Spinner /></div>
-                    )}
+             <div className="bg-slate-700/50 p-4 rounded-lg flex flex-col">
+                <h4 className="font-semibold text-lg flex items-center mb-2"><PhotoIcon className="w-6 h-6 mr-2 text-pink-400"/> AI Poster Generator</h4>
+                <p className="text-slate-400 text-sm mb-4 flex-grow">Create a unique poster representing your meditation's theme.</p>
+                {isGeneratingPoster ? <div className="flex justify-center"><Spinner/></div> : posterError ? <p className="text-red-400">{posterError}</p> : posterImage ? (
+                  <div className="space-y-2 text-center">
+                    <img src={`data:${posterMimeType};base64,${posterImage}`} alt="Generated Poster" className="rounded-lg max-h-32 mx-auto"/>
+                    <button onClick={handleDownloadPoster} className="text-xs flex items-center gap-1 px-2 py-1 bg-slate-600 rounded-md mx-auto"><DownloadIcon className="w-4 h-4"/> Download</button>
                   </div>
+                ) : (
+                    <div className="space-y-2 mt-auto">
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                            <select value={selectedPosterType} onChange={e => setSelectedPosterType(e.target.value as any)} className="w-full bg-slate-800 border-slate-600 rounded-md p-1 text-white"><option value="image/jpeg">JPEG</option><option value="image/png">PNG</option></select>
+                            <select value={selectedAspectRatio} onChange={e => setSelectedAspectRatio(e.target.value as any)} className="w-full bg-slate-800 border-slate-600 rounded-md p-1 text-white"><option value="3:4">Portrait</option><option value="16:9">Landscape</option></select>
+                        </div>
+                        <button onClick={handleGeneratePoster} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 font-semibold rounded-lg transition-colors"><SparklesIcon className="w-5 h-5" /> Generate Poster</button>
+                    </div>
                 )}
-              </div>
-            </div>
+             </div>
           </div>
-        </div>
-
-        {/* AI Poster Agent */}
-        <div className="mt-8 pt-8 border-t border-slate-700">
-            <h3 className="text-xl font-semibold text-amber-400 mb-4">AI Poster Agent</h3>
-            <div className="bg-slate-700/50 p-6 rounded-lg">
-                <h4 className="font-semibold text-lg flex items-center mb-2"><PhotoIcon className="w-6 h-6 mr-2 text-purple-400"/> Create a Poster</h4>
-                <p className="text-slate-400 mb-4">Generate a unique, downloadable poster that visually represents the meditation's core message.</p>
-                {isGeneratingPoster ? (
-                  <div className="flex flex-col justify-center items-center h-48 space-y-3">
-                      <Spinner />
-                      <p className="text-slate-400">AI Poster Agent is designing your poster...</p>
-                  </div>
-                ) : posterError ? (
-                  <div className="text-red-400 text-center p-4">{posterError}</div>
-                ) : posterImage ? (
-                  <div className="text-center animate-fade-in space-y-4">
-                    <img src={`data:${posterMimeType};base64,${posterImage}`} alt="Generated Meditation Poster" className="rounded-lg max-h-96 mx-auto"/>
-                    <button onClick={handleDownloadPoster} className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 hover:text-white transition-colors mx-auto">
-                        <DownloadIcon className="w-5 h-5" />
-                        Download Poster
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">Format</label>
-                            <select value={selectedPosterType} onChange={(e) => setSelectedPosterType(e.target.value as any)} className="w-full bg-slate-800 border border-slate-600 rounded-md p-2 text-white">
-                                <option value="image/jpeg">JPEG (Smaller Size)</option>
-                                <option value="image/png">PNG (Higher Quality)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-300 mb-1">Aspect Ratio</label>
-                            <select value={selectedAspectRatio} onChange={(e) => setSelectedAspectRatio(e.target.value as any)} className="w-full bg-slate-800 border border-slate-600 rounded-md p-2 text-white">
-                                <option value="3:4">Portrait (3:4)</option>
-                                <option value="16:9">Landscape (16:9)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button onClick={handleGeneratePoster} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 font-semibold rounded-lg transition-colors">
-                        <SparklesIcon className="w-5 h-5" />
-                        Generate Poster
-                    </button>
-                  </div>
-                )}
-              </div>
+           {showTimer && <AITimer script={meditationContent.meditationScript} duration={length} onClose={() => setShowTimer(false)} audioUrl={audioUrl} />}
+          {showScheduleModal && <ScheduleMeditationModal isOpen={true} onClose={() => setShowScheduleModal(false)} onConfirm={handleConfirmSchedule} theme={goal} isScheduling={isScheduling}/>}
         </div>
       </div>
     )
   );
 
-  // FIX: This component was missing a return statement, which caused it to return 'void'.
   return (
     <div className="animate-fade-in space-y-8">
-      <div>
-        <h1 className="text-3xl sm:text-4xl font-bold text-white">Guided Meditation Studio</h1>
-        <p className="mt-2 text-lg text-slate-400">Find your calm. Create a personalized meditation experience tailored to your goals. 🧘‍♀️</p>
-      </div>
-      
       {showRewardMessage && (
-        <div className="mt-4 p-3 bg-green-500/20 border border-green-500 text-green-300 rounded-lg text-center animate-fade-in">
+        <div className="mb-4 p-3 bg-green-500/20 border border-green-500 text-green-300 rounded-lg text-center animate-fade-in">
             +1 Meditation Completed! Your progress has been updated in 'My Journey'.
         </div>
       )}
-
-      {showTimer && meditationContent && (
-        <AITimer 
-            script={meditationContent.meditationScript} 
-            duration={length} 
-            onClose={() => setShowTimer(false)}
-            audioUrl={audioUrl}
-        />
-      )}
-      {showScheduleModal && meditationContent && (
-        <ScheduleMeditationModal
-            isOpen={showScheduleModal}
-            onClose={() => setShowScheduleModal(false)}
-            onConfirm={handleConfirmSchedule}
-            theme={goal}
-            isScheduling={isScheduling}
-        />
-      )}
+      <div>
+        <h1 className="text-3xl sm:text-4xl font-bold text-white">AI-Guided Meditation</h1>
+        <p className="mt-2 text-lg text-slate-400">Find your center with a meditation experience crafted just for you. 🧘‍♀️</p>
+      </div>
 
       {step === 'goal' && renderGoalSelection()}
       {step === 'generate' && renderGeneratorForm()}
@@ -836,5 +675,3 @@ export const MeditationGenerator: React.FC<MeditationGeneratorProps> = ({ onMedi
     </div>
   );
 };
-
-export default MeditationGenerator;
